@@ -20,6 +20,7 @@
            send the matching CW tone over the radio.
            Added the serial input section to test the switch code tone settings
  *09/17/24 EdB: Integrating morseduino_i2c-1.ino with this source
+ *09/26/24 EdB: Code cleanup.
  */
 
 //        Include the Libraries:
@@ -30,9 +31,6 @@
 #include <PS2KeyAdvanced.h>
 #include "AD5245.h" // Digi-Pot
 
-// Change to using I2C_eeprom.h
-// #include <EEPROM.h> // RS. may need a diffrent version of this
-// EdB: Switch to using Rob Tilaart's I2C_EEPROM
 #include "I2C_eeprom.h"
 
 // the address of your EEPROM
@@ -97,9 +95,8 @@ void intToByte(int intVal, byte byteSet[]);
 int byteToInt(byte byteSet[]);
 void eepromWriteInt(unsigned int pageAddress, int intVal);
 int eepromReadInt(unsigned int pageAddress);
+void setSideToneFromIndex();
 
-// EdB: Added support for I2C_eeprom
-// int ToneSet = EEPROM.read(addr); // a value bumped up or down by the left button
 int ToneSet = eepromReadInt(addr); // a value bumped up or down by the left button
 int oldToneSet = ToneSet;        // so we can tell when the value has changed
 int pitchDir = 1;                // Determines whether left button increases or decreases side-tone pitch
@@ -110,8 +107,6 @@ int pitchDir = 1;                // Determines whether left button increases or 
 // the value of noiseFilter will be the number of milliseconds we wait after reading pin 8
 // before reading it again to see if we have a valid key down or key up.
 
-// EdB: Added support for I2C_eeprom
-// int noiseFilter = EEPROM.read(addr + 1);
 int noiseFilter = eepromReadInt(addr + 1);
 
 int oldNoiseFilter = noiseFilter; // used to see if the value has changed
@@ -121,10 +116,8 @@ int sweepCount = 0; // used to slow down the sweep each time it cycles without s
 // sideToneIndex is a value stored in EEPROM that determines the frequency of the sidetone
 // values from 1 to 8 are allowed. The frequency of the tone will be this index times 110 Hz
 
-// EdB: Added support for I2C_eeprom
-// int sideToneIndex = EEPROM.read(addr + 2);
 int sideToneIndex = eepromReadInt(addr + 2);
-int sideTone = 440; // the frequency of the side tone
+int sideTone = 440; // the frequency of the side tone. Initialized to 440 but will change to match sideToneIndex in setupMorseduino()
 
 /////////////////////////////////////////////////////////////////////////////////////////
 // The following variables store values collected and calculated from millis()
@@ -455,9 +448,9 @@ void setupMorseduino()
 
   pinMode(SPEAKERPIN, OUTPUT); // switch from input to output for our side tone
 
-  if (sideToneIndex > 9)
+  if (sideToneIndex > 9)  // EdB: Unsure how the sideToneIndex could ever be greater than 9 and why default to 4 instead of clipping to 9?
     sideToneIndex = 4; // initialize at 440 Hz
-  sideTone = sideToneIndex * 110;
+  setSideToneFromIndex();
 
   if (noiseFilter > 8)
     noiseFilter = 4; // initialize at 4 ms
@@ -1437,13 +1430,10 @@ void loop()
 // RS. need the below to end mark
 void checkRIGHT_BUTTON()
 {
-
   if (sideToneSet)
   {
     // We also use this button to change the side tone if a speaker is attached
     sideToneIndex++;
-    if (sideToneIndex > 9)
-      sideToneIndex = 9;
     setSideTone();
     return;
   }
@@ -1507,12 +1497,8 @@ void resetDefaults()
 
   // only write to EEPROM if value has changed
   if (oldToneSet != ToneSet) // RS. may need to change to match new EEPROM
-    // EdB: Added support for I2C_eeprom
-    // EEPROM.write(addr, ToneSet);
     eepromWriteInt(addr, ToneSet);
   if (oldNoiseFilter != noiseFilter)
-    // EdB: Added support for I2C_eeprom
-    // EEPROM.write(addr + 1, noiseFilter);
     eepromWriteInt(addr + 1, noiseFilter);
   lastChange = 0; // turn timer off until next changes are made
 
@@ -1525,8 +1511,6 @@ void changePitch()
   if (sideToneSet)
   {
     sideToneIndex--;
-    if (sideToneIndex < 1)
-      sideToneIndex = 1;
     setSideTone();
     return;
   }
@@ -1561,7 +1545,6 @@ void changePitch()
 
 void sweep()
 {
-
   sweepCount = 0;
   oldToneSet = ToneSet;
   lcd.clear();
@@ -1781,6 +1764,15 @@ void shiftBits()
   }
 }
 
+void setSideToneFromIndex()
+{
+  if (sideToneIndex < 1)
+    sideToneIndex = 1;
+  if (sideToneIndex > 9)
+    sideToneIndex = 9;
+  sideTone = sideToneIndex * 110;
+}
+
 void setSideTone()
 {
   // Send dadididada ( -..--) to enter and exit this mode
@@ -1788,7 +1780,7 @@ void setSideTone()
     lcd.clear();
   lcd.setCursor(0, 0);
   delay(200);
-  sideTone = sideToneIndex * 110;
+  setSideToneFromIndex();
   lcd.print("SIDE TONE FREQ:");
   lcd.print(sideTone);
   lcd.print("Hz");
@@ -1824,8 +1816,6 @@ void printCharacter()
     else
     {
       sideToneSet = false;
-      // EdB: Added support for I2C_eeprom
-      // EEPROM.write(addr + 2, sideToneIndex);
       eepromWriteInt(addr + 2, sideToneIndex);
 
       resetDefaults();
@@ -1948,9 +1938,7 @@ void sendToLCD()
     // to extend EEPROM life we will only write when a charcter is printed and the value has changed.
     if (noiseFilter != oldNoiseFilter)
     {
-      // EdB: Added support for I2C_eeprom
       eepromWriteInt(addr + 1, noiseFilter);
-      // EEPROM.write(addr + 1, noiseFilter);
       oldNoiseFilter = noiseFilter;
       // Serial.println("noiseFilter saved to EEPROM");
     }
