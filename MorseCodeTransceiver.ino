@@ -95,10 +95,18 @@ void intToByte(int intVal, byte byteSet[]);
 int byteToInt(byte byteSet[]);
 void eepromWriteInt(unsigned int pageAddress, int intVal);
 int eepromReadInt(unsigned int pageAddress);
-void setSideToneFromIndex();
+int setNoteFrequencyByIndex(int);
 
-int ToneSet = eepromReadInt(addr); // a value bumped up or down by the left button
-int oldToneSet = ToneSet;        // so we can tell when the value has changed
+// EEPROM address offset values:
+// NoteSet:	      +0
+// noiseFilter: 	+1
+// noteIndex:	+2
+const int toneSetAddr = addr;
+const int noiseFilterAddr = addr + 1;
+const int noteIndexAddr = addr + 2;
+
+int NoteSet = eepromReadInt(toneSetAddr); // a value bumped up or down by the left button
+int oldToneSet = NoteSet;        // so we can tell when the value has changed
 int pitchDir = 1;                // Determines whether left button increases or decreases side-tone pitch
 // RS. End of what is needed here
 
@@ -107,17 +115,18 @@ int pitchDir = 1;                // Determines whether left button increases or 
 // the value of noiseFilter will be the number of milliseconds we wait after reading pin 8
 // before reading it again to see if we have a valid key down or key up.
 
-int noiseFilter = eepromReadInt(addr + 1);
+int noiseFilter = eepromReadInt(noiseFilterAddr);
 
 int oldNoiseFilter = noiseFilter; // used to see if the value has changed
 
 int sweepCount = 0; // used to slow down the sweep each time it cycles without success
 
-// sideToneIndex is a value stored in EEPROM that determines the frequency of the sidetone
-// values from 1 to 8 are allowed. The frequency of the tone will be this index times 110 Hz
+// noteIndex is a value stored in EEPROM that determines the frequency of the note
+// values from 1 to 9 are allowed. The frequency of the note will be this index times 110 Hz
 
-int sideToneIndex = eepromReadInt(addr + 2);
-int sideTone = 440; // the frequency of the side tone. Initialized to 440 but will change to match sideToneIndex in setupMorseduino()
+// EdB: Replaced sideToneIndex and sideTone with noteIndex and note
+int noteIndex = eepromReadInt(noteIndexAddr);
+int note = setNoteFrequencyByIndex(noteIndex);
 
 /////////////////////////////////////////////////////////////////////////////////////////
 // The following variables store values collected and calculated from millis()
@@ -172,7 +181,7 @@ boolean ditOrDah = true;      // We have either a full dit or a full dah
 boolean characterDone = true; // A full character has been received
 boolean justDid = true;       // Makes sure we only print one space during long gaps
 boolean speaker = false;      // We need to know if a speaker is connected
-boolean sideToneSet = false;  // We need to know if we are changing the side tone
+boolean toneFrequencySet = false;  // We need to know if we are changing the side tone
 
 int myBounce = 2; // Used as a short delay between key up and down
 int myCount = 0;
@@ -220,9 +229,9 @@ int ComCommand = 0; // Serial input to adjust tones as needed
 
 //,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
 int audio = 9; // Output Square Wave audio on pin 9. Use this audio to modulate the Morse dots and dashes
-// #define note 400
-int note = 400; // changed #define note to an int varable
-// int note = 1000;
+// EdB: Moved to reading from eeprom
+// int note = 400; // changed #define note to an int varable
+
 //,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
 int val1 = 65; // Digi-Pot 1 startup Setting 0 - 256 prob needs changing
 int val2 = 65; // Digi-Pot 2 startup Setting 0 - 256
@@ -448,9 +457,9 @@ void setupMorseduino()
 
   pinMode(SPEAKERPIN, OUTPUT); // switch from input to output for our side tone
 
-  if (sideToneIndex > 9)  // EdB: Unsure how the sideToneIndex could ever be greater than 9 and why default to 4 instead of clipping to 9?
-    sideToneIndex = 4; // initialize at 440 Hz
-  setSideToneFromIndex();
+  if (noteIndex > 9)
+    noteIndex = 4; // initialize at 440 Hz
+  setNoteFrequencyByIndex(noteIndex);
 
   if (noiseFilter > 8)
     noiseFilter = 4; // initialize at 4 ms
@@ -470,10 +479,10 @@ void setupMorseduino()
   Serial.println(AD2.isConnected()); // EdB: End AD2
   // EdB - End
 
-  if (ToneSet > 245)
-    ToneSet = 122; // initialize this value if it has not been stored yet
+  if (NoteSet > 245)
+    NoteSet = 122; // initialize this value if it has not been stored yet
   // EdB - Begin
-  digitalI2CPotWrite(AD1, ToneSet);
+  digitalI2CPotWrite(AD1, NoteSet);
   // EdB - End
 }
 
@@ -1317,7 +1326,7 @@ void printHeader()
   lcd.print(" MORSEDUINO 02");
   lcd.setCursor(0, 1);
   lcd.print("TS=");
-  lcd.print(ToneSet);
+  lcd.print(NoteSet);
   lcd.print(" QRNf=");
   lcd.print(noiseFilter);
   lcd.print(" SPK=");
@@ -1430,11 +1439,10 @@ void loop()
 // RS. need the below to end mark
 void checkRIGHT_BUTTON()
 {
-  if (sideToneSet)
+  if (toneFrequencySet)
   {
     // We also use this button to change the side tone if a speaker is attached
-    sideToneIndex++;
-    setSideTone();
+    incrementNoteFrequencyIndex(1);
     return;
   }
 
@@ -1496,29 +1504,29 @@ void resetDefaults()
   LCDline = 2;
 
   // only write to EEPROM if value has changed
-  if (oldToneSet != ToneSet) // RS. may need to change to match new EEPROM
-    eepromWriteInt(addr, ToneSet);
+  if (oldToneSet != NoteSet) // RS. may need to change to match new EEPROM
+    eepromWriteInt(toneSetAddr, NoteSet);
   if (oldNoiseFilter != noiseFilter)
-    eepromWriteInt(addr + 1, noiseFilter);
+    eepromWriteInt(noiseFilterAddr, noiseFilter);
   lastChange = 0; // turn timer off until next changes are made
 
-  oldToneSet = ToneSet;
+  oldToneSet = NoteSet;
   oldNoiseFilter = noiseFilter;
 }
 
 void changePitch()
 {
-  if (sideToneSet)
+  if (toneFrequencySet)
   {
-    sideToneIndex--;
-    setSideTone();
+    incrementNoteFrequencyIndex(-1);
+    setNote();
     return;
   }
 
   delay(200); // autorepeat
 
   lastChange = millis(); // reset timer so we know to save change later
-  oldToneSet = ToneSet;
+  oldToneSet = NoteSet;
   // if it has been more than 1 second since this button was pressed reverse the
   // direction of the pitch change
   if (millis() - pitchTimer > 1000)
@@ -1526,27 +1534,27 @@ void changePitch()
     pitchDir = pitchDir * -1;
   }
   pitchTimer = millis();
-  ToneSet = ToneSet + pitchDir;
-  if (ToneSet > 255)
-    ToneSet = 255;
-  if (ToneSet < 0)
-    ToneSet = 0;
+  NoteSet = NoteSet + pitchDir;
+  if (NoteSet > 255)
+    NoteSet = 255;
+  if (NoteSet < 0)
+    NoteSet = 0;
 
-  if (oldToneSet == ToneSet)
+  if (oldToneSet == NoteSet)
     return;
 
   // EdB - Start
-  digitalI2CPotWrite(AD1, ToneSet);
+  digitalI2CPotWrite(AD1, NoteSet);
   // EdB - End
   lcd.setCursor(0, LCDROWS - 1);
-  lcd.print(ToneSet); // show us the new value
+  lcd.print(NoteSet); // show us the new value
   lcd.print("    ");
 }
 
 void sweep()
 {
   sweepCount = 0;
-  oldToneSet = ToneSet;
+  oldToneSet = NoteSet;
   lcd.clear();
   lcd.print("Sweep");
   myMin = 255;
@@ -1567,14 +1575,14 @@ void sweep()
     sweepDown();
   }
   // Find a value that is half way between the min and max
-  ToneSet = (myMax - myMin) / 2;
-  ToneSet = ToneSet + myMin;
+  NoteSet = (myMax - myMin) / 2;
+  NoteSet = NoteSet + myMin;
   // EdB - Start
-  digitalI2CPotWrite(AD1, ToneSet); // send this value to the digital pot
+  digitalI2CPotWrite(AD1, NoteSet); // send this value to the digital pot
   // EdB - End
 #ifdef DEBUG
   Serial.print(F("\nTone Parked at:"));
-  Serial.println(ToneSet);
+  Serial.println(NoteSet);
 #endif
   lcd.clear();
   resetDefaults(); // store the changes right away don't wait
@@ -1591,17 +1599,17 @@ void sweepUp()
   lcd.print("Sweep Up");
   // lcd.setCursor(8,0);
 
-  for (ToneSet = 0; ToneSet <= MAXSWEEP; ToneSet += 2)
+  for (NoteSet = 0; NoteSet <= MAXSWEEP; NoteSet += 2)
   {
     // EdB - Start
-    digitalI2CPotWrite(AD1, ToneSet);
+    digitalI2CPotWrite(AD1, NoteSet);
     // EdB - End
     delay(sweepCount); // this delay gets longer with each pass
     if (!digitalRead(8))
     {
-      if (ToneSet > myMax)
+      if (NoteSet > myMax)
       {
-        myMax = ToneSet;
+        myMax = NoteSet;
 #ifdef DEBUG
         Serial.print(F("myMax="));
         Serial.println(myMax);
@@ -1622,17 +1630,17 @@ void sweepDown()
   lcd.print("Sweep Down");
   // lcd.setCursor(10,0);
 
-  for (ToneSet = MAXSWEEP; ToneSet >= 0; ToneSet -= 2)
+  for (NoteSet = MAXSWEEP; NoteSet >= 0; NoteSet -= 2)
   {
     // EdB - Start
-    digitalI2CPotWrite(AD1, ToneSet);
+    digitalI2CPotWrite(AD1, NoteSet);
     // EdB - End
     delay(sweepCount);
     if (!digitalRead(8))
     {
-      if (ToneSet < myMin)
+      if (NoteSet < myMin)
       {
-        myMin = ToneSet;
+        myMin = NoteSet;
 #ifdef DEBUG
         Serial.print(F("myMin="));
         Serial.println(myMin);
@@ -1655,7 +1663,7 @@ void keyIsDown()
 
   digitalWrite(SCOPEPIN, 0);
   if (speaker)
-    tone(SPEAKERPIN, sideTone);
+    tone(SPEAKERPIN, note);
   if (startUpTime > 0)
   {
     // We only need to do once, when the key first goes down
@@ -1764,25 +1772,16 @@ void shiftBits()
   }
 }
 
-void setSideToneFromIndex()
-{
-  if (sideToneIndex < 1)
-    sideToneIndex = 1;
-  if (sideToneIndex > 9)
-    sideToneIndex = 9;
-  sideTone = sideToneIndex * 110;
-}
-
-void setSideTone()
+void setNote()
 {
   // Send dadididada ( -..--) to enter and exit this mode
-  if (!sideToneSet)
+  if (!toneFrequencySet)
     lcd.clear();
   lcd.setCursor(0, 0);
   delay(200);
-  setSideToneFromIndex();
-  lcd.print("SIDE TONE FREQ:");
-  lcd.print(sideTone);
+  setNoteFrequencyByIndex();
+  lcd.print("NOTE FREQ:");
+  lcd.print(note);
   lcd.print("Hz");
   lcd.setCursor(1, 1);
   lcd.print("Send: ");
@@ -1796,8 +1795,8 @@ void setSideTone()
   lcd.setCursor(0, 3);
   LCDline = 3;
   justDid = true;
-  sideToneSet = true;
-  tone(SPEAKERPIN, sideTone);
+  toneFrequencySet = true;
+  tone(SPEAKERPIN, note);
   delay(100);
   noTone(speaker);
 }
@@ -1809,14 +1808,14 @@ void printCharacter()
 
   if (myNum == 44 && speaker)
   {
-    if (!sideToneSet)
+    if (!toneFrequencySet)
     {
-      setSideTone();
+      setNote();
     }
     else
     {
-      sideToneSet = false;
-      eepromWriteInt(addr + 2, sideToneIndex);
+      toneFrequencySet = false;
+      eepromWriteInt(noteIndexAddr, noteIndex);
 
       resetDefaults();
     }
@@ -1938,7 +1937,7 @@ void sendToLCD()
     // to extend EEPROM life we will only write when a charcter is printed and the value has changed.
     if (noiseFilter != oldNoiseFilter)
     {
-      eepromWriteInt(addr + 1, noiseFilter);
+      eepromWriteInt(noiseFilterAddr, noiseFilter);
       oldNoiseFilter = noiseFilter;
       // Serial.println("noiseFilter saved to EEPROM");
     }
@@ -2294,7 +2293,87 @@ void keyBrd()
   }
 }
 
+void setNoteFrequency(int frequency)
+{
+  note = frequency;
+}
+
+int setNoteFrequencyByIndex()
+{
+  setNoteFrequency(noteIndex * 110);
+}
+
+int setNoteFrequencyByIndex(int index) 
+{
+  // Restrict index to values 1 through 9
+  if (index > 0 && index < 10)
+  {
+    noteIndex = index;
+    setNoteFrequency(index * 110);
+  }
+  return noteIndex;
+}
+
+int incrementNoteFrequencyIndex(int increment)
+{
+  int newIndex = noteIndex + increment;
+  if (newIndex > 0 && newIndex < 10)
+    setNoteFrequencyByIndex(newIndex);
+  return noteIndex;
+}
+
+void setNoteFrequencyByCommmand(int command)
+{
+  setNoteFrequencyByIndex(command - 48);
+}
+
+void setResistance(int resistance)
+{
+  val2 = resistance;
+}
+
+void incrementResistance(int increment)
+{
+  if (increment == 0)
+    return;
+  if (increment > 0 && (val2 + increment) < 256) 
+  {
+    val2 += increment;
+    return;
+  }
+  if (increment < 0 && (val2 - increment) > -1)
+    val2 -= increment;
+}
+
+void setNoteFrequencyAndResistance(int frequency, int resistance)
+{
+  setNoteFrequency(frequency);
+  setResistance(resistance);
+}
+
+void printNoteFrequency()
+{
+  Serial.print(F("Frequency = "));
+  Serial.print(note);
+  Serial.println(F("Hz"));
+}
+
+void printResistance()
+{
+  Serial.print(F("Resistance (val2) = "));
+  Serial.print(val2);
+}
+
+void printNoteFrequencyAndResistance()
+{
+  Serial.print(F("Frequency = "));
+  Serial.print(note);
+  Serial.print(F("Hz Resistance (val2) = "));
+  Serial.println(val2);
+}
+
 ///////////////////// Serial Input Command Section ///////////////////
+// EdB: Changes to ComCommand. 1 to 9 now correspond to frequencies 110 to 990 Hz. Rassigned other commands.
 int ComInput()
 {
   switch (ComCommand)
@@ -2303,122 +2382,64 @@ int ComInput()
   // after receving a command
 
   // case '0':  // ComCommand = 0 = 400Hz
-  case 48: // Return input = 0
-    Serial.println(F("Frequance = 400Hz"));
-    note = 400;
+  case 48:
+    setNoteFrequency(400);
+    printNoteFrequency();
     break;
 
-  // case '1':  // ComCommand = 1 = 1000Hz
+  // ComCommand = Code 49 (Number 1) through Code 57 (Number 9) = 110Hz through 990Hz
   case 49:
-    Serial.println(F("Frequance = 1000Hz"));
-    note = 1000;
+  case 50:
+  case 51:
+  case 52:
+  case 53:
+  case 54:
+  case 55:
+  case 56:
+  case 57:
+    setNoteFrequencyByCommmand(ComCommand);
+    printNoteFrequency();
     break;
 
-  // case '2':  // ComCommand = 2
-  case 50: // Return input 2
-    Serial.println(F("Increse Resistance + 1"));
-    if (val2 < 255)
-    {
-      val2++;
-      Serial.println(val2);
-    }
-    break;
-
-  // case '3': // ComCommand = 3
-  case 51: // Return input 3
-    Serial.println(F("Reduce Resistance - 1"));
-    if (val2 > 0)
-    {
-      val2--;
-      Serial.println(val2);
-    }
-    // 400Hz = 95 = 4.961V  47K R
-    // 1000Hz = 249 = 4.9161V 47K R
-    break;
-
-  // case '4':  // ComCommand = 4
-  case 52: // Return input 4
-    Serial.println(F("Increse Resistance + 10"));
-    val2 = val2 + 10;
-    break;
-
-  // case '5':  // ComCommand = 5
-  case 53: // cReturn input 5
-    Serial.println(F("Reduce Resistance - 10"));
-    val2 = val2 - 10;
-    break;
-
-  // case '6': // ComCommand = 6
-  case 54: // Return input 6
-    Serial.println(F("Case = 6"));
-    Serial.println(F("Frequance = 400Hz Val2 = 65"));
-    note = 400;
-    val2 = 65;
-    break;
-
-  // case '7': // ComCommand = 7
-  case 55: // Return input 7
-    Serial.println(F("Frequance = 1000Hz Val2 = 158"));
-    note = 1000;
-    val2 = 158;
-    break;
-
-  // case '8':  // ComCommand = 8
-  case 56: // Return input 8
-    Serial.println(F("Case = 8"));
-    break;
-
-  // case '9': // ComCommand = 9
-  case 57: // Return input 9
-    Serial.println(F("Case = 9"));
-    break;
-    //"""""""""""""""""""""""" Letters """""""""""""""""""""""""""""""""
+  //"""""""""""""""""""""""" Letters """""""""""""""""""""""""""""""""
   case 97: // ComCommand a
-    Serial.println(F("Frequance = 400Hz"));
-    note = 400;
-    val2 = 65;
+    setNoteFrequencyAndResistance(400, 65);
+    printNoteFrequencyAndResistance();
     break;
 
   case 98: // ComCommand b
-    Serial.println(F("Frequance = 500Hz Val2 = ?"));
-    note = 500;
-    val2 = 73;
+    setNoteFrequencyAndResistance(500, 73);
+    printNoteFrequencyAndResistance();
     break;
 
   case 99: // ComCommand c
-    Serial.println(F("Frequance = 600Hz Val2 = ?"));
-    note = 600;
-    val2 = 83;
+    setNoteFrequencyAndResistance(600, 83);
+    printNoteFrequencyAndResistance();
     break;
 
   case 100: // ComCommand d
-    Serial.println(F("Frequance = 700Hz Val2 = ?"));
-    note = 700;
-    val2 = 97;
+    setNoteFrequencyAndResistance(700, 97);
+    printNoteFrequencyAndResistance();
     break;
 
   case 101: // ComCommand e
-    Serial.println(F("Frequance = 800Hz Val2 = ?"));
-    note = 800;
-    val2 = 114;
+    setNoteFrequencyAndResistance(800, 114);
+    printNoteFrequencyAndResistance();
     break;
 
   case 102: // ComCommand f
-    Serial.println(F("Frequance = 900Hz Val2 = ?"));
-    note = 900;
-    val2 = 134;
+    setNoteFrequencyAndResistance(900, 134);
+    printNoteFrequencyAndResistance();
     break;
 
   case 103: // ComCommand g
-    Serial.println(F("Frequance = 1000Hz Val2 = 249"));
-    note = 1000;
-    val2 = 158;
+    setNoteFrequencyAndResistance(1000, 158);
+    printNoteFrequencyAndResistance();
     break;
 
   case 104: // ComCommand h
-    Serial.println(F("Frequance = 1200Hz Val2 = ?"));
-    note = 1200;
-    val2 = 223;
+    setNoteFrequencyAndResistance(1200, 223);
+    printNoteFrequencyAndResistance();
     break;
 
   case 105: // ComCommand i
@@ -2427,6 +2448,41 @@ int ComInput()
 
   case 106: // ComCommand j
     Serial.println(F("Case = j"));
+    break;
+
+  case 107: // ComCommand k
+    Serial.println(F("Increse Resistance + 1"));
+    incrementResistance(1);
+    printResistance();
+    break;
+
+  case 108: // ComCommand l
+    Serial.println(F("Reduce Resistance - 1"));
+    incrementResistance(-1);
+    printResistance();
+    // 400Hz = 95 = 4.961V  47K R
+    // 1000Hz = 249 = 4.9161V 47K R
+    break;
+
+  case 109: // ComCommand m
+    Serial.println(F("Increse Resistance + 10"));
+    incrementResistance(10);
+    printResistance();
+    break;
+
+  case 110: // ComCommand n
+    Serial.println(F("Reduce Resistance - 10"));
+    incrementResistance(-10);
+    printResistance();
+
+  case 111: // ComCommand o
+    setNoteFrequencyAndResistance(400, 65);
+    printNoteFrequencyAndResistance();
+    break;
+
+  case 112: // ComCommand p
+    setNoteFrequencyAndResistance(1000, 158);
+    printNoteFrequencyAndResistance();
     break;
   }
 }
