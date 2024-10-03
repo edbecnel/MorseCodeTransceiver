@@ -106,7 +106,7 @@ const int noiseFilterAddr = addr + 1;
 const int noteIndexAddr = addr + 2;
 
 int NoteSet = eepromReadInt(toneSetAddr); // a value bumped up or down by the left button
-int oldToneSet = NoteSet;        // so we can tell when the value has changed
+int oldNoteSet = NoteSet;        // so we can tell when the value has changed
 int pitchDir = 1;                // Determines whether left button increases or decreases side-tone pitch
 // RS. End of what is needed here
 
@@ -181,7 +181,7 @@ boolean ditOrDah = true;      // We have either a full dit or a full dah
 boolean characterDone = true; // A full character has been received
 boolean justDid = true;       // Makes sure we only print one space during long gaps
 boolean speaker = false;      // We need to know if a speaker is connected
-boolean toneFrequencySet = false;  // We need to know if we are changing the side tone
+boolean noteFrequencySet = false;  // We need to know if we are changing the side tone
 
 int myBounce = 2; // Used as a short delay between key up and down
 int myCount = 0;
@@ -1439,7 +1439,7 @@ void loop()
 // RS. need the below to end mark
 void checkRIGHT_BUTTON()
 {
-  if (toneFrequencySet)
+  if (noteFrequencySet)
   {
     // We also use this button to change the side tone if a speaker is attached
     incrementNoteFrequencyIndex(1);
@@ -1504,19 +1504,19 @@ void resetDefaults()
   LCDline = 2;
 
   // only write to EEPROM if value has changed
-  if (oldToneSet != NoteSet) // RS. may need to change to match new EEPROM
+  if (oldNoteSet != NoteSet) // RS. may need to change to match new EEPROM
     eepromWriteInt(toneSetAddr, NoteSet);
   if (oldNoiseFilter != noiseFilter)
     eepromWriteInt(noiseFilterAddr, noiseFilter);
   lastChange = 0; // turn timer off until next changes are made
 
-  oldToneSet = NoteSet;
+  oldNoteSet = NoteSet;
   oldNoiseFilter = noiseFilter;
 }
 
 void changePitch()
 {
-  if (toneFrequencySet)
+  if (noteFrequencySet)
   {
     incrementNoteFrequencyIndex(-1);
     setNote();
@@ -1526,7 +1526,7 @@ void changePitch()
   delay(200); // autorepeat
 
   lastChange = millis(); // reset timer so we know to save change later
-  oldToneSet = NoteSet;
+  oldNoteSet = NoteSet;
   // if it has been more than 1 second since this button was pressed reverse the
   // direction of the pitch change
   if (millis() - pitchTimer > 1000)
@@ -1540,7 +1540,7 @@ void changePitch()
   if (NoteSet < 0)
     NoteSet = 0;
 
-  if (oldToneSet == NoteSet)
+  if (oldNoteSet == NoteSet)
     return;
 
   // EdB - Start
@@ -1554,7 +1554,7 @@ void changePitch()
 void sweep()
 {
   sweepCount = 0;
-  oldToneSet = NoteSet;
+  oldNoteSet = NoteSet;
   lcd.clear();
   lcd.print("Sweep");
   myMin = 255;
@@ -1775,7 +1775,7 @@ void shiftBits()
 void setNote()
 {
   // Send dadididada ( -..--) to enter and exit this mode
-  if (!toneFrequencySet)
+  if (!noteFrequencySet)
     lcd.clear();
   lcd.setCursor(0, 0);
   delay(200);
@@ -1795,7 +1795,7 @@ void setNote()
   lcd.setCursor(0, 3);
   LCDline = 3;
   justDid = true;
-  toneFrequencySet = true;
+  noteFrequencySet = true;
   tone(SPEAKERPIN, note);
   delay(100);
   noTone(speaker);
@@ -1808,13 +1808,13 @@ void printCharacter()
 
   if (myNum == 44 && speaker)
   {
-    if (!toneFrequencySet)
+    if (!noteFrequencySet)
     {
       setNote();
     }
     else
     {
-      toneFrequencySet = false;
+      noteFrequencySet = false;
       eepromWriteInt(noteIndexAddr, noteIndex);
 
       resetDefaults();
